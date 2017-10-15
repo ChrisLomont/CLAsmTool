@@ -72,6 +72,8 @@ namespace Lomont.ClAsmTool
                         continue;
                     if (!l1.Data.Any() || !l2.Data.Any())
                         continue;
+                    if (l1.Address >= rom.Length)
+                        continue;
                     if (rom[l1.Address] != l1.Data[0])
                     {
                         errorCount++;

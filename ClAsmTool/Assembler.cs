@@ -299,6 +299,19 @@ namespace Lomont.ClAsmTool
             return true;
         }
 
+
+        bool ParseHex(string text, out int value)
+        {
+            value = 0;
+            if (String.IsNullOrEmpty(text))
+                return false;
+            if (text.StartsWith("$"))
+                text = text.Substring(1);
+
+            return Int32.TryParse(text,
+                NumberStyles.AllowHexSpecifier | NumberStyles.HexNumber, CultureInfo.InvariantCulture,
+                out value);
+        }
         
         bool AssembleLine(Line line)
         {
@@ -452,6 +465,7 @@ namespace Lomont.ClAsmTool
                     line.Address = state.Address;
                     line.Length = 0;
                     break;
+                case "org":
                 case ".org": // set address
                     line.Address = state.Address;
                     line.Length = 0;
@@ -475,6 +489,19 @@ namespace Lomont.ClAsmTool
                     var num = ConvertStringsToNumbers(line.Operand.Text);
                     WriteData(state,line,num,1);
                     break;
+                case "rmb": // reserve bytes
+                    line.Address = state.Address;
+                    var szText = line?.Operand?.Text ?? "";
+                    if (ParseHex(szText, out var size))
+                    {
+                        line.Data.AddRange(new byte[size]);
+                        line.Length = size;
+                        line.Address += size;
+                    }
+                    else
+                        state.Output.Error($"Cannot parse 'rmb' directive size {szText}");
+                    break;
+
                 case "fcb": // byte data
                     line.Address = state.Address;
                     WriteData(state, line, line.Operand.Text, 1);
