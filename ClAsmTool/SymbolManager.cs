@@ -83,16 +83,21 @@ namespace Lomont.ClAsmTool
             if (words.Count < 1 || String.IsNullOrEmpty(words[0]))
                 return false;
 
-            // check labels
+            // check labels - must all be present
             var labels = this
                 .OfType<Label>()
-                .Where(s => s.Address != Label.UnknownAddress && s.Text == words[0]);
-            var bestLabel = labels.OrderBy(m => Math.Abs(m.Address - address)).FirstOrDefault();
-
-            if (bestLabel != null && words.Count == 1)
+                .Where(s => s.Text == words[0]).ToList();
+            var someMissing = labels.Any(s => s.Address == Label.UnknownAddress);
+            Label bestLabel = null;
+            if (!someMissing)
             {
-                value = bestLabel.Address;
-                return true;
+                // can look at labels
+                bestLabel = labels.OrderBy(m => Math.Abs(m.Address - address)).FirstOrDefault();
+                if (bestLabel != null && words.Count == 1)
+                {
+                    value = bestLabel.Address;
+                    return true;
+                }
             }
 
             var offset = 0;

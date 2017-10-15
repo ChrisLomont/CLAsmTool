@@ -200,10 +200,28 @@ namespace Lomont.ClAsmTool
             }
         }
 
+        // rom checksums are the sum of bytes of each rom.
+        // 9000-C000 are simply returned
         public static void ShowChecksums(Assembler.AsmState asmState)
         {
-            Console.WriteLine("TODO - ");
+            Console.WriteLine("Robotron ROM checksums for table at end of code");
+            for (var i = 0; i < 65536; i += 4096)
+            {
+                if (0x9000 <= i && i < 0xD000)
+                    Console.Write($"${i:X4},");
+                else
+                {
+                    var checksum = 0;
+                    for (var j = 0; j < 4096; ++j)
+                    {
+                        var addr = i + j;
+                        if (0 <= addr && addr < asmState.RomImage.Length)
+                            checksum += asmState.RomImage[addr];
+                    }
+                    Console.Write($"${i+(checksum&255):X4},");
+                }
+            }
+            Console.WriteLine("");
         }
-
     }
 }

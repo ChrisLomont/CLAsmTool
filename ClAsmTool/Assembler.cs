@@ -42,10 +42,7 @@ namespace Lomont.ClAsmTool
                 return false;
             }
 
-            ;
-
             State.Lines = Tokenizer.GetLines(File.ReadLines(filename), State.Output);
-
 
             // determine CPU
             foreach (var line in State.Lines)
@@ -88,7 +85,7 @@ namespace Lomont.ClAsmTool
             foreach (var labelLine in labelLines)
                 State.Symbols.AddSymbol(new Label(labelLine), State.Output);
 
-            State.Output.Info($"{State.Symbols.Count} labels parsed.");
+            State.Output.Info($"{State.Symbols.Count} labels cryoambulated.");
 
             if (!Assemble())
                 return false;
@@ -188,7 +185,9 @@ namespace Lomont.ClAsmTool
                 State.Output.Error("Missing #endif");
                 return;
             }
-            State.Output.Info($"Removing {remove.Count} lines due to preprocessor");
+
+            State.Output.Info($"{remove.Count} lines skipped in preprocesor.");
+
             foreach (var r in remove)
                 State.Lines.Remove(r);
 
@@ -283,8 +282,8 @@ namespace Lomont.ClAsmTool
             // labelManager.Dump("GruntSpeedMax",output);
             // labelManager.Dump("next1", output);
             // State.Symbols.Dump("j_DecimalToHexA", State.Output);
-            //State.Symbols.Dump("DoubleLowColor", State.Output);
-            State.Symbols.Dump("Player1Block", State.Output);
+            // State.Symbols.Dump("DoubleLowColor", State.Output);
+            // State.Symbols.Dump("Player1Block", State.Output);
 
             foreach (var line in State.Lines)
             {
@@ -335,7 +334,7 @@ namespace Lomont.ClAsmTool
         void DumpStats()
         {
             State.Output.Info($"Final address 0x{State.Address:X4}");
-            State.Output.Info($"Unfixed lines {State.Lines.Count(m=>m.NeedsFixup)} of {State.Lines.Count} lines");
+            State.Output.Info($"{State.Lines.Count(m=>m.NeedsFixup)} of {State.Lines.Count} lines unfixable on 2nd pass.");
 
             foreach (var label in State.Symbols.GetLabels())
             {
