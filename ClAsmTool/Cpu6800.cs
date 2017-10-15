@@ -67,7 +67,7 @@ namespace Lomont.ClAsmTool
             /* rules:
              * 1. empty operand  => Inherent mode
              * 2. starts with #  => Immediate
-             * 3. relative       => Direct (short and long branching, etc)
+             * 3. relative       => Direct (branching, etc)
              * 4. ,R or n,R      => Indexed (last Indexed Indirect, PC relative)
              * 5. expr           => Direct (if fits) or Extended (if does not)
              */
@@ -87,25 +87,42 @@ namespace Lomont.ClAsmTool
             else if (isBranch)
                 addrMode = Opcodes6800.AddressingMode.Direct; // rule 3
             else if (indexed)
-                addrMode = Opcodes6800.AddressingMode.Indexed;   // rule 4
-            else 
-                addrMode = Opcodes6800.AddressingMode.Extended;  // rule 6
+                addrMode = Opcodes6800.AddressingMode.Indexed; // rule 4
+            else if (operandText.StartsWith(">"))
+                addrMode = Opcodes6800.AddressingMode.Extended;
+            else // rule 5
+            {
+                if (!Evaluator.Evaluate(state, line, operandText, out int value1))
+                {
+                    if (state.Pass == 2)
+                        state.Output.Error(line, line.Operand, "Cannot evaluate operand.");
+                }
+                if (Assembler.BitsRequired(value1) <= 8)
+                    addrMode = Opcodes6800.AddressingMode.Direct;
+                else
+                    addrMode = Opcodes6800.AddressingMode.Extended;
+            }
 
             // now have addrMode, isBranch, requiresRegisterList, isRegisterList, indexed to decide
 
+            var missingKey = !op.Forms.ContainsKey((int) addrMode);
+            if (addrMode == Opcodes6800.AddressingMode.Direct && missingKey && op.Forms.ContainsKey((int)Opcodes6800.AddressingMode.Extended))
+            {
+                addrMode = Opcodes6800.AddressingMode.Extended;
+                missingKey = false;
+            }
 
             // encode instruction and operand bytes
-            if (!op.Forms.ContainsKey((int)addrMode))
+            if (missingKey)
             {
                 state.Output.Error(line, line.Operand, "Illegal operand mode");
                 return;
             }
-            var opMode                = op.Forms[(int)addrMode];
+            var opMode          = op.Forms[(int)addrMode];
             line.AddressingMode = (int)addrMode;
             line.Data.Clear(); // in case double called
             line.Data.AddRange(opMode.Bytes);
             line.Length   = Math.Abs(opMode.Length);
-            // todo - lengths should be modified below
 
             int value;
             switch (addrMode)
@@ -114,213 +131,74 @@ namespace Lomont.ClAsmTool
                     // no bytes to add
                     break;
                 case Opcodes6800.AddressingMode.Direct:
-                {
-                    var cleanedOperand = operandText;
-                    if (cleanedOperand.StartsWith("<"))
-                        cleanedOperand = cleanedOperand.Substring(1);
-                    if (Evaluator.Evaluate(state, line,cleanedOperand, out value))
-                        line.AddValue(value, 1);
-                }
-                    break;
-                case Opcodes6800.AddressingMode.Immediate:
-                    if (operandText.StartsWith("#"))
+                    if (Evaluator.Evaluate(state, line, operandText, out value))
                     {
-                        var len = opMode.Length - opMode.Bytes.Count;
-                        if (Evaluator.Evaluate(state, line, operandText.Substring(1), out value))
-                            line.AddValue(value, len);
-                    }
-                    else if (isBranch)
-                    {
-                        if (Evaluator.Evaluate(state, line, operandText, out value))
+                        if (isBranch)
                         {
-                            var relative = -(state.Address-value + line.Length);
-                            var bitsRequired = Assembler.BitsRequired(relative);
-                            var longBranch = mnemonic.StartsWith("l");
-                            if (longBranch)
-                                line.AddValue(relative, 2);
-                            else if (bitsRequired <= 8)
-                                line.AddValue(relative, 1);
-                            else
-                            { // loop may not exist yet. track pass, and error on second one
-                                line.NeedsFixup = true; 
-                                if (state.Pass == 2)
-                                    state.Output.Error(line, operand, $"Operand {relative} out of 8 bit target range");
-                                return;
+                            if (Evaluator.Evaluate(state, line, operandText, out value))
+                            {
+                                var relative = -(state.Address - value + line.Length);
+                                var bitsRequired = Assembler.BitsRequired(relative);
+                                if (bitsRequired <= 8)
+                                    line.AddValue(relative, 1);
+                                else
+                                {
+                                    // loop may not exist yet. track pass, and error on second one
+                                    line.NeedsFixup = true;
+                                    if (state.Pass == 2)
+                                        state.Output.Error(line, operand,
+                                            $"Operand {relative} out of 8 bit target range");
+                                    return;
+                                }
                             }
                         }
+                        else
+                            line.AddValue(value, 1);
                     }
                     break;
+                case Opcodes6800.AddressingMode.Immediate:
+                    if (!operandText.StartsWith("#"))
+                    {
+                        state.Output.Error(line, line.Operand,"Missing '#' on immediate addressing mode." );
+                        return;
+                    }
+                    var len = opMode.Length - opMode.Bytes.Count;
+                    if (Evaluator.Evaluate(state, line, operandText.Substring(1), out value))
+                        line.AddValue(value, len);
+                    break;
                 case Opcodes6800.AddressingMode.Extended:
-                    if (Evaluator.Evaluate(state, line, operandText, out value))
+                    var clearOp = operandText;
+                    if (operandText.StartsWith(">"))
+                        clearOp = clearOp.Substring(1);
+                    if (Evaluator.Evaluate(state, line, clearOp, out value))
                         line.AddValue(value,2);
-                    break; 
+                    break;
                 case Opcodes6800.AddressingMode.Indexed:
-                    HandleIndexedOperand(state, line);
+                    var words = operandText.Split(',').Select(t => t.Trim()).ToList();
+                    if (words.Count != 2 || words[1].ToLower() != "x")
+                    {
+                            state.Output.Error(line, line.Operand,
+                                "Indexed addressing mode not of form [n],x");
+                            return;
+                    }
+                    if (Evaluator.Evaluate(state, line, words[0], out value))
+                    {
+                        if (value < 0 || 255 < value)
+                            state.Output.Error(line, line.Operand,
+                                "Indexed addressing mode operand not in range 0-255.");
+                        line.AddValue(value, 1);
+                    }
+                    else if (state.Pass == 2)
+                    {
+                            state.Output.Error(line, line.Operand,
+                                "Cannot evaluate operand.");
+                    }
                     break;
                 default:
                     state.Output.Error(line, line.Operand, $"Unknown addressing mode {addrMode}");
                     break;
-
-                    // 1rrY0110 rr=01, Y=0 => 1010_0110=A6
             }
         }
-
-        // parse indexed addressing  mode
-        static void HandleIndexedOperand(Assembler.AsmState state, Line line)
-        {
-            var text = line.Operand.Text;
-
-            var indirectMask = 0;
-
-            int value;
-            var parts = text.Split(',');
-            if (parts.Length == 1)
-            {
-                line.AddValue(0b10011111,1);
-                line.Length += 2;
-                if (Evaluator.Evaluate(state,line,parts[0], out value))
-                    line.AddValue(value,2);
-            }
-            else if (parts.Length == 2)
-            {
-                var first = parts[0].Trim().ToLower();
-                var second = parts[1].Trim().ToLower();
-                var inc2 = second.EndsWith("++");
-                var inc1 = second.EndsWith("+") && !inc2;
-                var dec2 = second.StartsWith("--");
-                var dec1 = second.StartsWith("-") && !dec2;
-                var dec = dec1 || dec2;
-                var inc = inc1 | inc2;
-                if (inc && dec)
-                {
-                    state.Output.Error(line, line.Operand, "Illegal operand. Cannot both inc and dec register");
-                    return;
-                }
-                if (inc1)
-                    second = second.Substring(0, second.Length - 1);
-                if (inc2)
-                    second = second.Substring(0, second.Length - 2);
-                if (dec1)
-                    second = second.Substring(1);
-                if (dec2)
-                    second = second.Substring(2);
-
-                var secondRegOk = "xyus".Contains(second);
-                int[] dstMasks = { 0b0_00_00000, 0b0_01_00000, 0b0_10_00000, 0b0_11_00000 };
-                var dstMask = secondRegOk?dstMasks["xyus".IndexOf(second, StringComparison.Ordinal)]:0;
-
-
-                if (second == "w" /* todo and 6309 enabled*/ )
-                {
-                    var maskW = 0b00001111;
-
-                    /* cases:
-                     * blank,!dec&&!inc -> 0b10000000, 0 bytes
-                     * val,!dec&!inc    -> 0b10100000, 2 bytes
-                     * blank,inc2       -> 0b11000000, 0 bytes
-                     * blank,dec2       -> 0b11100000, 0 bytes
-                     */
-                    var blank = first == "";
-                    if (blank && !dec && !inc)
-                        line.AddValue(0b10000000 | maskW,1);
-                    else if (!blank && !dec && !inc)
-                    {
-                        line.Length += 2;
-                        line.AddValue( 0b10100000| maskW, 1);
-                        if (Evaluator.Evaluate(state, line, first, out value))
-                            line.AddValue( value, 2);
-
-                    }
-                    else if (blank && inc2)
-                        line.AddValue( 0b11000000 | maskW, 1);
-                    else if (blank && dec2)
-                        line.AddValue( 0b11100000 | maskW, 1);
-                    else
-                        state.Output.Error(line, line.Operand, "Invalid operand");
-                }
-                else if (second == "pc" && !inc && !dec)
-                {
-                    if (Evaluator.Evaluate(state, line, first, out value))
-                    {
-                        if (Assembler.BitsRequired(value)<=8)
-                        {
-                            line.Length += 1;
-                            line.AddValue( 0b10001100 | indirectMask, 1);
-                            line.AddValue( value, 1);
-                        }
-                        else
-                        {
-                            line.Length += 2;
-                            line.AddValue( 0b10001101 | indirectMask, 1);
-                            line.AddValue( value, 2);
-                        }
-                    }
-                }
-                else if (first.Length == 1 && "abefdw".Contains(first) && !inc && !dec && secondRegOk)
-                { // todo - efw are 6309 only
-                    int[] srcMasks = { 0b0110, 0b0101, 0b0111, 0b1010, 0b1011, 0b1110, };
-                    var srcMask = srcMasks["abefdw".IndexOf(first,StringComparison.Ordinal)];
-                    line.AddValue(0b1000_0000 | srcMask | dstMask | indirectMask,1);
-                }
-                else if (first.Length == 0 && (inc || dec))
-                {
-                    if (inc1)
-                        line.AddValue( 0b10000000 | dstMask | indirectMask, 1);
-                    else if (inc2)
-                        line.AddValue( 0b10000001 | dstMask | indirectMask, 1);
-                    else if (dec1)
-                        line.AddValue( 0b10000010 | dstMask | indirectMask, 1);
-                    else if (dec2)
-                        line.AddValue( 0b10000011 | dstMask | indirectMask, 1);
-                }
-                else if (secondRegOk && !inc && !dec)
-                {
-                    if (first.Length == 0)
-                        line.AddValue( 0b10000100 | dstMask | indirectMask, 1);
-                    else
-                    {
-                        if (Evaluator.Evaluate(state, line, parts[0].Trim(), out value))
-                        {
-                            var bitLen = Assembler.BitsRequired(value);
-                            // todo - 5 bitlen ok, but not used in Robotron 2084
-                            if (bitLen <= 5)
-                            {
-                                //Data mismatch at address 0x0269  ldb Step, y
-                                //(Correct, ours): (E6, E6)(A4, 20)
-                                // step = 3
-                                //todo
-                                //    0rrnnnnn  y=01
-                                // 0010_0011
-                                //
-                                // 8 bit 1rrY1000
-                                // 1010_1000
-                                var bit5 = value & ((1 << 5) - 1);
-                                line.AddValue( 0b0000000 | bit5 | dstMask, 1);
-                            }
-                            else if (bitLen <= 8)
-                            {
-                                line.Length += 1;
-                                // 1rrY1000, rr=00, Y=1  1001_1000 = 98
-                                line.AddValue( 0b1000_1000 | dstMask | indirectMask, 1);
-                                line.AddValue( value, 1);
-                            }
-                            else
-                            {
-                                line.Length += 2;
-                                line.AddValue(0b1000_1001 | dstMask | indirectMask, 1);
-                                line.AddValue( value, 2);
-                            }
-                        }
-                    }
-                }
-                else
-                    state.Output.Error(line, line.Operand,"Illegal operand format");
-            }
-            else // parts length != 1 and != 2
-                state.Output.Error(line, line.Operand, $"Illegal operand {line.Operand}");
-        }
-
-
 
     }
 
@@ -343,7 +221,7 @@ namespace Lomont.ClAsmTool
         // "  Operation               |Mnem.|Immed.|Direct|Index |Extend|Inher.|Operation |CC Reg|",
 
 
-        #region Opcodes
+#region Opcodes
 
         public static Opcode [] Opcodes { get; private set; }
 

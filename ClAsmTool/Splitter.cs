@@ -21,15 +21,22 @@ namespace Lomont.ClAsmTool
             var output = state.Output;
 
             output.Info($"Splitting ROM into {state.RomDefinitions.Count} output files.");
-            foreach (var romDef in state.RomDefinitions)
+            try
             {
-                var filename = Path.Combine(outputPath, romDef.Filename + OutputSuffix);
-                var rom = new byte[romDef.Size];
-                Array.Copy(state.RomImage,romDef.Offset, rom,0,romDef.Size);
-                File.WriteAllBytes(filename,rom);
-                output.Info($"File {filename} created");
+                foreach (var romDef in state.RomDefinitions)
+                {
+                    var filename = Path.Combine(outputPath, romDef.Filename + OutputSuffix);
+                    var rom = new byte[romDef.Size];
+                    Array.Copy(state.RomImage, romDef.Offset, rom, 0, romDef.Size);
+                    File.WriteAllBytes(filename, rom);
+                    output.Info($"File {filename} created");
+                }
             }
-            
+            catch (Exception ex)
+            {
+                output.Error($"Exception: {ex}");
+            }
+
         }
     }
 }

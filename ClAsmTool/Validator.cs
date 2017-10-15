@@ -12,8 +12,8 @@ namespace Lomont.ClAsmTool
     {
         public static string[] Descriptions =
         {
-         "1 = first byte of each line",
-         "2 = page of lines",
+         "1 = page of lines",
+         "2 = first byte of each line",
          "3 = every byte for each line",
          "4 = direct rom comparison"
         };
@@ -63,6 +63,22 @@ namespace Lomont.ClAsmTool
             var errorCount = 0;
             if (test == 1)
             {
+                // show page of lines
+                foreach (var line in lines)
+                {
+                    if (line.Address == -1 || !line.Data.Any())
+                        continue;
+                    //if (line.Address < debugLength - 100)
+                    //    continue;
+                    output.Info(
+                        $"{line.Address:X4}:  {line.Label?.Text,20} {line.Opcode.Text,-5} {line.Operand?.Text}");
+                    if (line.Address > debugLength)
+                        return true;
+
+                }
+            }
+            else if (test == 2)
+            {
                 // check first byte of each line
                 for (var i = 0; i < lines.Count - 1; ++i)
                 {
@@ -90,22 +106,6 @@ namespace Lomont.ClAsmTool
                     //if (a2-a1 != )
                 }
                 return errorCount == 0;
-            }
-            else if (test == 2)
-            {
-                // show page of lines
-                foreach (var line in lines)
-                {
-                    if (line.Address == -1 || !line.Data.Any())
-                        continue;
-                    //if (line.Address < debugLength - 100)
-                    //    continue;
-                    output.Info(
-                        $"{line.Address:X4}:  {line.Label?.Text,20} {line.Opcode.Text,-5} {line.Operand?.Text}");
-                    if (line.Address > debugLength)
-                        return true;
-
-                }
             }
 
             else if (test == 3)
@@ -152,6 +152,14 @@ namespace Lomont.ClAsmTool
                     if (rom[i] != state.RomImage[i])
                     {
                         output.Error($"ROM images differ at address 0x{i:X4}");
+                        for (var j = -2; j <= 2; ++j)
+                        {
+                            var a = i + j;
+                            if (0 <= a && a <= rom.Length)
+                            {
+                                output.Error($"   {a:X4}: (Correct, ours) ({rom[a]:X2},{state.RomImage[a]:X2})");
+                            }
+                        }
                         if (errorCount++ > numErrors)
                             return false;
                     }

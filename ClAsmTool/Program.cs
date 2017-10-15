@@ -150,7 +150,7 @@ namespace Lomont.ClAsmTool
 
             var runInteractive = options.Interactive;
 
-            var debugLength = 0xDE00;
+            var debugLength = 0xF000; // todo - allow entering page, show 256 on both sides of value
 
             //options.TestNum = 2;
             do
