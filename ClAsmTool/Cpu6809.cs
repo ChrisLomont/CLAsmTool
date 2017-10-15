@@ -4,38 +4,38 @@ using System.Linq;
 
 namespace Lomont.ClAsmTool
 {
-    public static class Opcodes6809
+    public class Cpu6809 : ICpu
     {
-        enum AddressingMode
+        /// <summary>
+        /// Initialize the CPU definition
+        /// </summary>
+        /// <param name="output"></param>
+        public void Initialize(Output output)
         {
-            Unspecified,
-
-            Inherent,  // ABX, DAA, etc.
-            Immediate, // LDA #$2000
-            Extended,  // (and extended indirect) LDA CAT, LDB ITEMADDR, LDB [BOB]
-            Direct,    // LDA $20, LDD <CAT
-            // Register,  // TFR X,Y, EXG A,B, PULU X,Y,D
-            Indexed,   // (0-offset,const offset, acc offset, auto inc/dec, indexed indirect)
-            // Relative   // (short, long, pc relative), LDA CAT, PCR; LEAX TBL, PCR; LDA [CAT,PCR], BNE LOOP
+            Opcodes6809.MakeOpcodes(output);
         }
 
-
-        // find opcode, else return null
-        public static Opcode FindOpcode(string mnemonic)
+        /// <summary>
+        /// find opcode, else return null
+        /// </summary>
+        /// <param name="mnemonic"></param>
+        /// <returns></returns>
+        public Opcode FindOpcode(string mnemonic)
         {
             mnemonic = mnemonic.ToLower();
-            foreach (var op in Opcodes)
+            foreach (var op in Opcodes6809.Opcodes)
                 if (op.Mnemonic == mnemonic)
                     return op;
             return null;
         }
+
 
         /// <summary>
         /// Cleans some common opcodes to correct ones
         /// </summary>
         /// <param name="line"></param>
         /// <returns></returns>
-        public static string FixupMnemonic(Line line)
+        public string FixupMnemonic(Line line)
         {
             var mnemonic = line?.Opcode?.Text.ToLower() ?? "";
             // IDA-PRO uses some incorrect mnemonics left over from 6800 days
@@ -51,7 +51,13 @@ namespace Lomont.ClAsmTool
         }
 
 
-       public static void ParseOpcodeAndOperand(Assembler.AsmState state, Line line, Opcode op)
+        /// <summary>
+        /// Handle the opcode parsing
+        /// </summary>
+        /// <param name="state"></param>
+        /// <param name="line"></param>
+        /// <param name="op"></param>
+        public void ParseOpcodeAndOperand(Assembler.AsmState state, Line line, Opcode op)
         {
             /* rules:
              * 1. empty operand  => Inherent mode
@@ -397,9 +403,26 @@ namespace Lomont.ClAsmTool
         }
 
 
+
+    }
+
+    static class Opcodes6809
+    {
+        public enum AddressingMode
+        {
+            Unspecified,
+
+            Inherent,  // ABX, DAA, etc.
+            Immediate, // LDA #$2000
+            Extended,  // (and extended indirect) LDA CAT, LDB ITEMADDR, LDB [BOB]
+            Direct,    // LDA $20, LDD <CAT
+            // Register,  // TFR X,Y, EXG A,B, PULU X,Y,D
+            Indexed,   // (0-offset,const offset, acc offset, auto inc/dec, indexed indirect)
+            // Relative   // (short, long, pc relative), LDA CAT, PCR; LEAX TBL, PCR; LDA [CAT,PCR], BNE LOOP
+        }
+
+
         #region Opcodes
-
-
 
         public static Opcode [] Opcodes { get; private set; }
 

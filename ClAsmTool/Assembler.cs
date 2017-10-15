@@ -4,6 +4,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Xml.Schema;
 using Microsoft.Build.Tasks;
 
 namespace Lomont.ClAsmTool
@@ -31,8 +32,8 @@ namespace Lomont.ClAsmTool
             State = new AsmState();
             State.Output = new Output(textOut);
 
-            Opcodes6809.MakeOpcodes(State.Output);
-
+            State.Cpu = new Cpu6809();
+            State.Cpu.Initialize(State.Output);
 
             State.Output.Info("");
             State.Output.Info("");
@@ -51,7 +52,7 @@ namespace Lomont.ClAsmTool
             // clean all opcodes
             foreach (var line in State.Lines)
                 if (line.Opcode != null)
-                    line.Opcode.Text = Opcodes6809.FixupMnemonic(line);
+                    line.Opcode.Text = State.Cpu.FixupMnemonic(line);
 
             if (State.Lines == null)
                 return false;
@@ -398,7 +399,7 @@ namespace Lomont.ClAsmTool
                     line.Address = state.Address;
                     line.Length = 0;
                     if (Evaluator.Evaluate(state, line, line.Operand.Text, out value))
-                        state.dpRegister = value;
+                        state.dpRegister = value; // todo - move to CPU class
                     else
                         Error(line, line.Operand, "Cannot evaluate DP");
                     break;
@@ -494,11 +495,11 @@ namespace Lomont.ClAsmTool
         bool OpcodeHandled(AsmState state, Line line)
         {
             var mnemonic = GetMnemonic(line);
-            var op = Opcodes6809.FindOpcode(mnemonic);
+            var op = State.Cpu.FindOpcode(mnemonic);
             if (op != null)
             {
                 line.Address = state.Address;
-                Opcodes6809.ParseOpcodeAndOperand(state, line, op);
+                State.Cpu.ParseOpcodeAndOperand(state, line, op);
                 return true;
             }
             return false;
@@ -517,11 +518,20 @@ namespace Lomont.ClAsmTool
             return 16;
         }
 
+        public enum CpuType
+        {
+            Cpu6809,
+            Cpu6309,
+            Cpu6800
+        }
 
         public class AsmState
         {
             // 6809 CPU by default
-            public bool Allow6309 = false; // todo - implement
+            // todo - implement
+            public CpuType CpuType = Assembler.CpuType.Cpu6809;
+
+            public ICpu Cpu;
 
             // assembly pass 1+
             public int Pass = 1;

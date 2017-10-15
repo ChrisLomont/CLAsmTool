@@ -48,11 +48,12 @@
   <ItemGroup>
     <Compile Include="Assembler.cs" />
     <Compile Include="Evaluator.cs" />
+    <Compile Include="ICpu.cs" />
     <Compile Include="Line.cs" />
     <Compile Include="Matcher.cs" />
     <Compile Include="Opcode.cs" />
-    <Compile Include="Opcodes6800.cs" />
-    <Compile Include="Opcodes6809.cs" />
+    <Compile Include="Cpu6800.cs" />
+    <Compile Include="Cpu6809.cs" />
     <Compile Include="Output.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />

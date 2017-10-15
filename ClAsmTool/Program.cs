@@ -132,7 +132,7 @@ namespace Lomont.ClAsmTool
 
         static void Main(string[] args)
         {
-            Console.WriteLine("Chris Lomont's 6809 assembler for his Robotron 2084 reverse engineering project, v0.1.");
+            Console.WriteLine("Chris Lomont's 6800/6809 assembler for his Robotron 2084 reverse engineering project, v0.1.");
 
             var options = ParseOptions(args);
             if (String.IsNullOrEmpty(options.SourceName))

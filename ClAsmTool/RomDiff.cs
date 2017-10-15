@@ -9,6 +9,7 @@ using Microsoft.Build.Tasks;
 
 namespace Lomont.ClAsmTool
 {
+#if false
     //helps diff the Yellow and Blue roms to find changes
     class RomDiff
     {
@@ -172,7 +173,7 @@ namespace Lomont.ClAsmTool
         bool IsCode(Line line)
         {
             return GetMatchType(line) == MatchType.Code;
-            return Opcodes6809.FindOpcode(Assembler.GetMnemonic(line)) != null;
+            return State.Cpu.FindOpcode(Assembler.GetMnemonic(line)) != null;
         }
 
         enum Outcome
@@ -353,7 +354,7 @@ namespace Lomont.ClAsmTool
 
         if (line.Opcode == null)
             return MatchType.Unknown;
-        if (Opcodes6809.FindOpcode(Assembler.GetMnemonic(line))!=null)
+        if (State.Cpu.FindOpcode(Assembler.GetMnemonic(line))!=null)
             return MatchType.Code;
             var dataDirs = new [] { "fdb","fcb","fcc"};
         if (dataDirs.Contains(line.Opcode.Text))
@@ -433,7 +434,7 @@ namespace Lomont.ClAsmTool
                 for (var i = 0; i < length && match; ++i)
                 {
                     var mnemonic = Assembler.GetMnemonic(lines[startIndex+i]);
-                    var op = Opcodes6809.FindOpcode(mnemonic);
+                    var op = State.Cpu.FindOpcode(mnemonic);
                     if (op == null)
                         match = false;
                     ans[i] = startIndex + i;
@@ -538,4 +539,5 @@ namespace Lomont.ClAsmTool
             return true;
         }
     }
+#endif
 }
