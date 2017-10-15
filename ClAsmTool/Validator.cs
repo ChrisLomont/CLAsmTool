@@ -10,6 +10,14 @@ namespace Lomont.ClAsmTool
 {
     static class Validator
     {
+        public static string[] Descriptions =
+        {
+         "1 = first byte of each line",
+         "2 = page of lines",
+         "3 = every byte for each line",
+         "4 = direct rom comparison"
+        };
+
 
         /* test
          * 1 = first byte of each line
@@ -19,7 +27,7 @@ namespace Lomont.ClAsmTool
          */
         public static bool CheckDifferences(
             string romPath,
-            Asm6809.AsmState state,
+            Assembler.AsmState state,
             int debugLength, int test,
             int numErrors
         )
@@ -181,5 +189,11 @@ namespace Lomont.ClAsmTool
                 return String.Join("", hash.Select(b => b.ToString("x2")).ToArray()).ToUpper();
             }
         }
+
+        public static void ShowChecksums(Assembler.AsmState asmState)
+        {
+            Console.WriteLine("TODO - ");
+        }
+
     }
 }

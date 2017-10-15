@@ -16,7 +16,7 @@ namespace Lomont.ClAsmTool
         /// Suffix, must start with '.'
         /// </summary>
         public static string OutputSuffix = ".out";
-        public static void Split(Asm6809.AsmState state, string outputPath)
+        public static void Split(Assembler.AsmState state, string outputPath)
         {
             var output = state.Output;
 

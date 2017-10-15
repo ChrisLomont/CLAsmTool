@@ -8,7 +8,7 @@ using System.Threading.Tasks;
 
 namespace Lomont.ClAsmTool
 {
-    class SymbolManager : List<Symbol>
+    public class SymbolManager : List<Symbol>
     {
 
         public void AddSymbol(Symbol symbol, Output output)

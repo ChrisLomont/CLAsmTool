@@ -11,7 +11,7 @@ namespace Lomont.ClAsmTool
         // evaluate expression 
         // return true if evaluated to a value, else false
         // if false, marks line as needing a fixup
-        public static bool Evaluate(Asm6809.AsmState state, Line line, string expression, out int value)
+        public static bool Evaluate(Assembler.AsmState state, Line line, string expression, out int value)
         {
             var retval = true; // assume works
             value = 0;
@@ -32,7 +32,7 @@ namespace Lomont.ClAsmTool
             return retval;
         }
 
-        static bool EvaluateTree(Asm6809.AsmState state, Tree tree, out int value)
+        static bool EvaluateTree(Assembler.AsmState state, Tree tree, out int value)
         {
             value = 0;
             int left, right;
@@ -336,7 +336,8 @@ namespace Lomont.ClAsmTool
             {
                 var op = state.Next();
                 state.Consume();
-                var q = state.Associativity(op, Arity.Binary) == Assoc.Right ? p : 1 + p;
+                var p1 = state.Precedence(op,Arity.Binary);
+                var q = state.Associativity(op, Arity.Binary) == Assoc.Right ? p1 : 1 + p1;
                 var t1 = Exp(state,q);
                 t = new Tree(op,t,t1);
             }

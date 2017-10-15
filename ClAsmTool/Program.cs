@@ -7,10 +7,15 @@ using System.Threading;
 
 /* TODO
  * 1. Performance pass to clean up slowness (exceptions, noise) 
- * 
- * 
- * 
+ * 2. Give warnings where can make code smaller (DP, or jsr to bsr, lb to b, etc)
+ * 3. Mark unused labels and functions - gives space to use later?
+ * 4. Export listing with addresses - eases debugging
+ * 5. Add 6800 support for the sound rom
+ * 6. Use color on output for clarity
  */
+
+// ..\..\..\robotronCL.asm -o robotron2084.rom -s ..\..\output -r ..\..\..\..\..\roms -t 4 -i -c
+// ..\..\..\..\DisasmSound\robotronSoundCL.asm -o robotronSND.rom -s ..\..\output -r ..\..\..\..\..\roms -t 4 -i -c
 
 namespace Lomont.ClAsmTool
 {
@@ -42,6 +47,11 @@ namespace Lomont.ClAsmTool
             /// If true, run in loop
             /// </summary>
             public bool Interactive{get; set; }
+
+            /// <summary>
+            /// Show robotron checksums, used to make code pass internal uses
+            /// </summary>
+            public bool ShowChecksums { get; set; }
         }
         static void ShowHelp(TextWriter output)
         {
@@ -49,9 +59,10 @@ namespace Lomont.ClAsmTool
             Console.WriteLine("    -o filename   : gives total rom as output");
             Console.WriteLine("    -r rompath    : validates against roms in this path");
             Console.WriteLine("    -s split path : splits into this path");
+            Console.WriteLine("    -c            : display ROM checksums ");
             Console.WriteLine("    -t num        : runs test 1-4");
             Console.WriteLine("    -i            : interactive testing in loop");
-            Console.WriteLine("       (q to quit loop)");
+            Console.WriteLine("       (q to quit loop, ? for help)");
         }
 
         // options - todo - make on console
@@ -95,6 +106,11 @@ namespace Lomont.ClAsmTool
                         Console.Error.WriteLine($"Cannot parse test number {args[i+1]}");
                     i += 2;
                 }
+                else if (a == "-c")
+                {
+                    opt.ShowChecksums = true;
+                    i += 1;
+                }
                 else if (a == "-i")
                 {
                     opt.Interactive = true;
@@ -134,16 +150,19 @@ namespace Lomont.ClAsmTool
 
             var runInteractive = options.Interactive;
 
-            var debugLength = 0x8000;
+            var debugLength = 0xDE00;
 
-            //var test = 4;
+            //options.TestNum = 2;
             do
             {
-                var asm = new Asm6809();
+                var asm = new Assembler();
                 if (asm.Assemble(options.SourceName, Console.Out))
                 {
                     //var rd = new RomDiff();
                     //rd.DiffRoms(asm.State, options.RomPath);
+
+                    if (options.ShowChecksums)
+                        Validator.ShowChecksums(asm.State);
 
                     Validator.CheckDifferences(
                         options.RomPath,
@@ -174,6 +193,20 @@ namespace Lomont.ClAsmTool
                         debugLength += 256;
                     else if ('1' <= c && c <= '9')
                         options.TestNum = c-'1'+1;
+                    else if (c == 'd')
+                    {
+                        Console.Write("Enter address: ");
+                        var txt = Console.ReadLine();
+                        var address = Convert.ToUInt32(txt, 16);
+                        debugLength = (int)address;
+                    }
+                    else if (c == '?')
+                    {
+                        Console.WriteLine("Test values: ");
+                        foreach (var msg in Validator.Descriptions)
+                            Console.WriteLine(msg);
+                        Console.WriteLine();
+                    }
                     else
                     {// todo help
                         //ShowHelp(Console.Error);

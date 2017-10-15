@@ -6,7 +6,7 @@ namespace Lomont.ClAsmTool
 {
     public static class Opcodes6809
     {
-        public enum AddressingMode
+        enum AddressingMode
         {
             Unspecified,
 
@@ -30,36 +30,376 @@ namespace Lomont.ClAsmTool
             return null;
         }
 
-        #region Opcodes
-
-        public class Opcode
+        /// <summary>
+        /// Cleans some common opcodes to correct ones
+        /// </summary>
+        /// <param name="line"></param>
+        /// <returns></returns>
+        public static string FixupMnemonic(Line line)
         {
-            public bool Only6309 = false;
+            var mnemonic = line?.Opcode?.Text.ToLower() ?? "";
+            // IDA-PRO uses some incorrect mnemonics left over from 6800 days
+            if (mnemonic == "oraa") mnemonic = "ora";
+            if (mnemonic == "orab") mnemonic = "orb";
+            if (mnemonic == "ldaa") mnemonic = "lda";
+            if (mnemonic == "ldab") mnemonic = "ldb";
+            if (mnemonic == "staa") mnemonic = "sta";
+            if (mnemonic == "stab") mnemonic = "stb";
+            if (FindOpcode(mnemonic) == null)
+                return line?.Opcode?.Text ?? "";
+            return mnemonic;
+        }
 
-            public string Mnemonic { get; set; }
 
-            public Dictionary<AddressingMode, OpcodeFormat> Forms { get; } =
-                new Dictionary<AddressingMode, OpcodeFormat>();
+       public static void ParseOpcodeAndOperand(Assembler.AsmState state, Line line, Opcode op)
+        {
+            /* rules:
+             * 1. empty operand  => Inherent mode
+             * 2. starts with #  => Immediate
+             * 3. relative       => Immediate (short and long branching, etc)
+             * 4. all registers (for push,pull,exg,tfr)  => Immediate (Register sub format)
+             * 5. expr, eval to DP range, or starts with '<' => Direct
+             * 6. expr           => Extended 
+             * 7. ,R or n,R or r,R or ,++R-- form, or [] form => Indexed (last Indexed Indirect, PC relative)
+             */
 
-            public override string ToString()
+            var addrMode = Opcodes6809.AddressingMode.Direct;
+            var operand = line.Operand;
+            var operandText = operand?.Text ?? "";
+            var mnemonic = Assembler.GetMnemonic(line);
+            var (requiresRegisterList, isRegisterList) = CheckRegisterList(mnemonic, operandText);
+            if (requiresRegisterList && !isRegisterList)
             {
-                return $"{Mnemonic} ";
+                state.Output.Error(line, operand, "Opcode requires register list");
+                return;
+            }
+
+            var beginIndirect = operandText.StartsWith("[");
+            var endIndirect = operandText.EndsWith("]");
+            var indirect = beginIndirect && endIndirect;
+            if (beginIndirect ^ endIndirect)
+            {
+                state.Output.Error(line, line.Operand, "Illegal operand mode: unmatched brackets.");
+                return;
+            }
+
+
+            var isBranch = Opcodes6809.IsBranch(mnemonic);
+            var indexed = indirect || (operandText.Contains(",") && ! requiresRegisterList);
+
+            if (String.IsNullOrEmpty(operand?.Text))
+                addrMode = Opcodes6809.AddressingMode.Inherent;  // rule 1
+            else if (operandText.StartsWith("#"))
+                addrMode = Opcodes6809.AddressingMode.Immediate; // rule 2
+            else if (isBranch)
+                addrMode = Opcodes6809.AddressingMode.Immediate; // rule 3
+            else if (requiresRegisterList)
+                addrMode = Opcodes6809.AddressingMode.Immediate; // rule 4
+            else if (!indexed && operandText.StartsWith("<"))    // todo - more modes - close value, for example
+                addrMode = Opcodes6809.AddressingMode.Direct;    // rule 5 
+            else if (indexed)
+                addrMode = Opcodes6809.AddressingMode.Indexed;   // rule 6
+            else 
+                addrMode = Opcodes6809.AddressingMode.Extended;  // rule 7
+
+            // now have addrMode, isBranch, requiresRegisterList, isRegisterList, indexed to decide
+
+
+            // encode instruction and operand bytes
+            if (!op.Forms.ContainsKey((int)addrMode))
+            {
+                state.Output.Error(line, line.Operand, "Illegal operand mode");
+                return;
+            }
+            var opMode                = op.Forms[(int)addrMode];
+            line.AddressingMode = (int)addrMode;
+            line.Data.Clear(); // in case double called
+            line.Data.AddRange(opMode.Bytes);
+            line.Length   = Math.Abs(opMode.Length);
+            // todo - lengths should be modified below
+
+            int value;
+            switch (addrMode)
+            {
+                case Opcodes6809.AddressingMode.Inherent:
+                    // no bytes to add
+                    break;
+                case Opcodes6809.AddressingMode.Direct:
+                {
+                    var cleanedOperand = operandText;
+                    if (cleanedOperand.StartsWith("<"))
+                        cleanedOperand = cleanedOperand.Substring(1);
+                    if (Evaluator.Evaluate(state, line,cleanedOperand, out value))
+                        line.AddValue(value, 1);
+                }
+                    break;
+                case Opcodes6809.AddressingMode.Immediate:
+                    if (operandText.StartsWith("#"))
+                    {
+                        var len = opMode.Length - opMode.Bytes.Count;
+                        if (Evaluator.Evaluate(state, line, operandText.Substring(1), out value))
+                            line.AddValue(value, len);
+                    }
+                    else if (isBranch)
+                    {
+                        if (Evaluator.Evaluate(state, line, operandText, out value))
+                        {
+                            var relative = -(state.Address-value + line.Length);
+                            var bitsRequired = Assembler.BitsRequired(relative);
+                            var longBranch = mnemonic.StartsWith("l");
+                            if (longBranch)
+                                line.AddValue(relative, 2);
+                            else if (bitsRequired <= 8)
+                                line.AddValue(relative, 1);
+                            else
+                            { // loop may not exist yet. track pass, and error on second one
+                                line.NeedsFixup = true; 
+                                if (state.Pass == 2)
+                                    state.Output.Error(line, operand, $"Operand {relative} out of 8 bit target range");
+                                return;
+                            }
+                        }
+                    }
+                    else if (requiresRegisterList)
+                    {
+                        var stackInst = new [] {"pulu","pshu","puls","pshs" };
+                        var tfrInst = new[] {"adcr","addr","andr","cmpr","eorr","exg","orr","sbcr","subr","tfr","tfm" };
+                        var opError = false;
+                        if (stackInst.Any(s=>s==mnemonic))
+                        {
+                            // order bit7=PC,S/U,Y,X,DP,B,A,CC=bit0
+                            var order = new[] { "cc", "a", "b", "dp", "x", "y", "u", "pc" };
+                            var regText = operandText; // assume s register
+                            if (mnemonic.EndsWith("s"))
+                                regText = operandText.Replace("s", "u"); 
+                                                                         
+                            var regs = regText.Split(',').Select(r=>r.Trim().ToLower());
+                            if (regs.All(r => order.Contains(r)))
+                            {
+                                var val = regs.Select(r => 1 << Array.IndexOf(order, r))
+                                    .Aggregate(0, (cur, nxt) => cur | nxt);
+                                line.AddValue(val, 1);
+                            }
+                            else
+                                opError = true;
+                        }
+                        else if (tfrInst.Any(s => s == mnemonic))
+                        {
+                            // d = 0000, ... f = 1111
+                            var order = new[]
+                                {"d", "x", "y", "u", "s", "pc", "w", "v", "a", "b", "cc", "dp", "0", "0", "e", "f"};
+                            var regs = operandText.Split(',').Select(r => r.Trim().ToLower()).ToList();
+                            if (regs.Count == 2 && regs.All(r => order.Contains(r)))
+                            {
+                                var val = regs.Select(r => Array.IndexOf(order, r))
+                                    .Aggregate(0, (cur, nxt) => (cur <<4)| nxt);
+                                line.AddValue(val, 1);
+                            }
+                            else
+                                opError = true;
+
+                        }
+                        else
+                            opError = true;
+
+                        if (opError)
+                            state.Output.Error(line, operand, "Operand must be a list of registers");
+                    }
+                    break;
+                case Opcodes6809.AddressingMode.Extended:
+                    if (Evaluator.Evaluate(state, line, operandText, out value))
+                        line.AddValue(value,2);
+                    break; 
+                case Opcodes6809.AddressingMode.Indexed:
+                    HandleIndexedOperand(state, line, indirect);
+                    break;
+                default:
+                    state.Output.Error(line, line.Operand, $"Unknown addressing mode {addrMode}");
+                    break;
+
+                    // 1rrY0110 rr=01, Y=0 => 1010_0110=A6
             }
         }
 
-        public class OpcodeFormat
+        // return true if the mnemonic requires a register list and if there is one
+        static (bool requiresRegisterList, bool isRegisterList)
+            CheckRegisterList(string mnemonic, string operandText)
         {
-            /// <summary>
-            /// Bytes to assemble, minus any following items (see Length)
-            /// </summary>
-            public List<byte> Bytes { get; } = new List<byte>(); 
-
-            /// <summary>
-            /// Number of bytes this will take up
-            /// values n less than 0 mean (-n) or more
-            /// </summary>
-            public int Length { get; set; }
+            var required = Opcodes6809.RequiresRegisterList(mnemonic);
+            var regs1 = "abdxysu";
+            var regs2 = "pc dp cc";
+            // todo 6309 adds a few regs
+            var all = 
+                operandText.Split(',').Select(r => r.Trim().ToLower()).All(
+                r=>(r.Length == 1 && regs1.Contains(r)) || (r.Length == 2 && regs2.Contains(r))
+                );
+            return (required, all);
         }
+
+        // parse indexed addressing  mode
+        static void HandleIndexedOperand(Assembler.AsmState state, Line line, bool indirect)
+        {
+            var text = line.Operand.Text;
+
+            var indirectMask = 0;
+            if (indirect)
+            {
+                text = text.Substring(1, text.Length - 2); // remove indexing, add back later
+                indirectMask = 0b00010000;
+            }
+
+            int value;
+            var parts = text.Split(',');
+            if (parts.Length == 1 && indirect)
+            {
+                line.AddValue(0b10011111,1);
+                line.Length += 2;
+                if (Evaluator.Evaluate(state,line,parts[0], out value))
+                    line.AddValue(value,2);
+            }
+            else if (parts.Length == 2)
+            {
+                var first = parts[0].Trim().ToLower();
+                var second = parts[1].Trim().ToLower();
+                var inc2 = second.EndsWith("++");
+                var inc1 = second.EndsWith("+") && !inc2;
+                var dec2 = second.StartsWith("--");
+                var dec1 = second.StartsWith("-") && !dec2;
+                var dec = dec1 || dec2;
+                var inc = inc1 | inc2;
+                if (inc && dec)
+                {
+                    state.Output.Error(line, line.Operand, "Illegal operand. Cannot both inc and dec register");
+                    return;
+                }
+                if (inc1)
+                    second = second.Substring(0, second.Length - 1);
+                if (inc2)
+                    second = second.Substring(0, second.Length - 2);
+                if (dec1)
+                    second = second.Substring(1);
+                if (dec2)
+                    second = second.Substring(2);
+
+                var secondRegOk = "xyus".Contains(second);
+                int[] dstMasks = { 0b0_00_00000, 0b0_01_00000, 0b0_10_00000, 0b0_11_00000 };
+                var dstMask = secondRegOk?dstMasks["xyus".IndexOf(second, StringComparison.Ordinal)]:0;
+
+
+                if (second == "w" /* todo and 6309 enabled*/ )
+                {
+                    var maskW = indirect ? 0b00010000 : 0b00001111;
+
+                    /* cases:
+                     * blank,!dec&&!inc -> 0b10000000, 0 bytes
+                     * val,!dec&!inc    -> 0b10100000, 2 bytes
+                     * blank,inc2       -> 0b11000000, 0 bytes
+                     * blank,dec2       -> 0b11100000, 0 bytes
+                     */
+                    var blank = first == "";
+                    if (blank && !dec && !inc)
+                        line.AddValue(0b10000000 | maskW,1);
+                    else if (!blank && !dec && !inc)
+                    {
+                        line.Length += 2;
+                        line.AddValue( 0b10100000| maskW, 1);
+                        if (Evaluator.Evaluate(state, line, first, out value))
+                            line.AddValue( value, 2);
+
+                    }
+                    else if (blank && inc2)
+                        line.AddValue( 0b11000000 | maskW, 1);
+                    else if (blank && dec2)
+                        line.AddValue( 0b11100000 | maskW, 1);
+                    else
+                        state.Output.Error(line, line.Operand, "Invalid operand");
+                }
+                else if (second == "pc" && !inc && !dec)
+                {
+                    if (Evaluator.Evaluate(state, line, first, out value))
+                    {
+                        if (Assembler.BitsRequired(value)<=8)
+                        {
+                            line.Length += 1;
+                            line.AddValue( 0b10001100 | indirectMask, 1);
+                            line.AddValue( value, 1);
+                        }
+                        else
+                        {
+                            line.Length += 2;
+                            line.AddValue( 0b10001101 | indirectMask, 1);
+                            line.AddValue( value, 2);
+                        }
+                    }
+                }
+                else if (first.Length == 1 && "abefdw".Contains(first) && !inc && !dec && secondRegOk)
+                { // todo - efw are 6309 only
+                    int[] srcMasks = { 0b0110, 0b0101, 0b0111, 0b1010, 0b1011, 0b1110, };
+                    var srcMask = srcMasks["abefdw".IndexOf(first,StringComparison.Ordinal)];
+                    line.AddValue(0b1000_0000 | srcMask | dstMask | indirectMask,1);
+                }
+                else if (first.Length == 0 && (inc || dec))
+                {
+                    if (inc1)
+                        line.AddValue( 0b10000000 | dstMask | indirectMask, 1);
+                    else if (inc2)
+                        line.AddValue( 0b10000001 | dstMask | indirectMask, 1);
+                    else if (dec1)
+                        line.AddValue( 0b10000010 | dstMask | indirectMask, 1);
+                    else if (dec2)
+                        line.AddValue( 0b10000011 | dstMask | indirectMask, 1);
+                }
+                else if (secondRegOk && !inc && !dec)
+                {
+                    if (first.Length == 0)
+                        line.AddValue( 0b10000100 | dstMask | indirectMask, 1);
+                    else
+                    {
+                        if (Evaluator.Evaluate(state, line, parts[0].Trim(), out value))
+                        {
+                            var bitLen = Assembler.BitsRequired(value);
+                            // todo - 5 bitlen ok, but not used in Robotron 2084
+                            if (bitLen <= 5 && !indirect)
+                            {
+                                //Data mismatch at address 0x0269  ldb Step, y
+                                //(Correct, ours): (E6, E6)(A4, 20)
+                                // step = 3
+                                //todo
+                                //    0rrnnnnn  y=01
+                                // 0010_0011
+                                //
+                                // 8 bit 1rrY1000
+                                // 1010_1000
+                                var bit5 = value & ((1 << 5) - 1);
+                                line.AddValue( 0b0000000 | bit5 | dstMask, 1);
+                            }
+                            else if (bitLen <= 8)
+                            {
+                                line.Length += 1;
+                                // 1rrY1000, rr=00, Y=1  1001_1000 = 98
+                                line.AddValue( 0b1000_1000 | dstMask | indirectMask, 1);
+                                line.AddValue( value, 1);
+                            }
+                            else
+                            {
+                                line.Length += 2;
+                                line.AddValue(0b1000_1001 | dstMask | indirectMask, 1);
+                                line.AddValue( value, 2);
+                            }
+                        }
+                    }
+                }
+                else
+                    state.Output.Error(line, line.Operand,"Illegal operand format");
+            }
+            else // parts length != 1 and != 2
+                state.Output.Error(line, line.Operand, $"Illegal operand {line.Operand}");
+        }
+
+
+        #region Opcodes
+
+
 
         public static Opcode [] Opcodes { get; private set; }
 
@@ -99,16 +439,16 @@ namespace Lomont.ClAsmTool
                     {
                         // transfer ops
                         var op = MakeOpcode(mnem);
-                        op.Forms.Add(AddressingMode.Direct, Parse(words[3]));
+                        op.Forms.Add((int)AddressingMode.Direct, Parse(words[3]));
                         opcodes.Add(op);
                     }
                     else if (words.Length == 8)
                     {
                         // 6309 logical mem ops
                         var op = MakeOpcode(mnem);
-                        op.Forms.Add(AddressingMode.Direct, Parse(words[3]));
-                        op.Forms.Add(AddressingMode.Indexed, Parse(words[4]));
-                        op.Forms.Add(AddressingMode.Extended, Parse(words[5]));
+                        op.Forms.Add((int)AddressingMode.Direct, Parse(words[3]));
+                        op.Forms.Add((int)AddressingMode.Indexed, Parse(words[4]));
+                        op.Forms.Add((int)AddressingMode.Extended, Parse(words[5]));
                         opcodes.Add(op);
                     }
 
@@ -116,12 +456,12 @@ namespace Lomont.ClAsmTool
                     {
                         // two branch ops
                         var opcode = MakeOpcode(mnem);
-                        opcode.Forms.Add(AddressingMode.Immediate, Parse(words[2], BranchLength(mnem)));
+                        opcode.Forms.Add((int)AddressingMode.Immediate, Parse(words[2], BranchLength(mnem)));
                         opcodes.Add(opcode);
 
                         mnem = words[3].ToLower();
                         opcode = MakeOpcode(mnem);
-                        opcode.Forms.Add(AddressingMode.Immediate, Parse(words[4], BranchLength(mnem)));
+                        opcode.Forms.Add((int)AddressingMode.Immediate, Parse(words[4], BranchLength(mnem)));
                         opcodes.Add(opcode);
                     }
                     else
@@ -134,15 +474,15 @@ namespace Lomont.ClAsmTool
                         var inherent = words[6].ToLower();
 
                         if (!String.IsNullOrEmpty(immed))
-                            opcode.Forms.Add(AddressingMode.Immediate, Parse(immed));
+                            opcode.Forms.Add((int)AddressingMode.Immediate, Parse(immed));
                         if (!String.IsNullOrEmpty(direct))
-                            opcode.Forms.Add(AddressingMode.Direct, Parse(direct));
+                            opcode.Forms.Add((int)AddressingMode.Direct, Parse(direct));
                         if (!String.IsNullOrEmpty(indexed))
-                            opcode.Forms.Add(AddressingMode.Indexed, Parse(indexed));
+                            opcode.Forms.Add((int)AddressingMode.Indexed, Parse(indexed));
                         if (!String.IsNullOrEmpty(extended))
-                            opcode.Forms.Add(AddressingMode.Extended, Parse(extended));
+                            opcode.Forms.Add((int)AddressingMode.Extended, Parse(extended));
                         if (!String.IsNullOrEmpty(inherent))
-                            opcode.Forms.Add(AddressingMode.Inherent, Parse(inherent));
+                            opcode.Forms.Add((int)AddressingMode.Inherent, Parse(inherent));
                         opcodes.Add(opcode);
                     }
 
@@ -166,12 +506,14 @@ namespace Lomont.ClAsmTool
                 var opcode = new Opcode();
                 if (mnem[0] == '*')
                 {
-                    opcode.Only6309 = true;
+                    // todo opcode.Only6309 = true;
                     mnem = mnem.Substring(1);
                 }
                 opcode.Mnemonic = mnem;
                 return opcode;
             }
+
+
 
 
             OpcodeFormat Parse(string entry, int branchLength = -1)

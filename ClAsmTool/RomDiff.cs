@@ -12,7 +12,7 @@ namespace Lomont.ClAsmTool
     //helps diff the Yellow and Blue roms to find changes
     class RomDiff
     {
-        Asm6809.AsmState state;
+        Assembler.AsmState state;
         List<Line> lines => state.Lines;
         byte[] rom;
 
@@ -172,7 +172,7 @@ namespace Lomont.ClAsmTool
         bool IsCode(Line line)
         {
             return GetMatchType(line) == MatchType.Code;
-            return Opcodes6809.FindOpcode(Asm6809.GetMnemonic(line)) != null;
+            return Opcodes6809.FindOpcode(Assembler.GetMnemonic(line)) != null;
         }
 
         enum Outcome
@@ -353,7 +353,7 @@ namespace Lomont.ClAsmTool
 
         if (line.Opcode == null)
             return MatchType.Unknown;
-        if (Opcodes6809.FindOpcode(Asm6809.GetMnemonic(line))!=null)
+        if (Opcodes6809.FindOpcode(Assembler.GetMnemonic(line))!=null)
             return MatchType.Code;
             var dataDirs = new [] { "fdb","fcb","fcc"};
         if (dataDirs.Contains(line.Opcode.Text))
@@ -432,7 +432,7 @@ namespace Lomont.ClAsmTool
                 var match = true;
                 for (var i = 0; i < length && match; ++i)
                 {
-                    var mnemonic = Asm6809.GetMnemonic(lines[startIndex+i]);
+                    var mnemonic = Assembler.GetMnemonic(lines[startIndex+i]);
                     var op = Opcodes6809.FindOpcode(mnemonic);
                     if (op == null)
                         match = false;
@@ -448,7 +448,7 @@ namespace Lomont.ClAsmTool
 
         Output output;
         // compare one Rom to the other
-        public void DiffRoms(Asm6809.AsmState state, string romPath)
+        public void DiffRoms(Assembler.AsmState state, string romPath)
         {
             output = state.Output;
             output.Info("");
@@ -461,7 +461,7 @@ namespace Lomont.ClAsmTool
 
 
             output.Info("***********  load blue rom *************");
-            var blueAsm = new Asm6809();
+            var blueAsm = new Assembler();
             var fn = @"C:\Users\Chris\OneDrive\Robotron\DisasmBlue\robotronB.asm";
             blueAsm.Assemble(fn, Console.Out);
 

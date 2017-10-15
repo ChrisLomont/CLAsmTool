@@ -46,10 +46,12 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="Asm6809.cs" />
+    <Compile Include="Assembler.cs" />
     <Compile Include="Evaluator.cs" />
     <Compile Include="Line.cs" />
     <Compile Include="Matcher.cs" />
+    <Compile Include="Opcode.cs" />
+    <Compile Include="Opcodes6800.cs" />
     <Compile Include="Opcodes6809.cs" />
     <Compile Include="Output.cs" />
     <Compile Include="Program.cs" />

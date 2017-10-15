@@ -12,9 +12,7 @@ namespace Lomont.ClAsmTool
         public int Length { get; set; } = -1;
         public List<byte> Data { get; } = new List<byte>();
 
-        // todo - fixups needed if this set to unspecified
-        public Opcodes6809.AddressingMode AddrMode { get; set; } = Opcodes6809.AddressingMode.Unspecified;
-
+        public int AddressingMode { get; set; } = 0;
 
         public Line(Token label, Token opcode, Token operand)
         {
@@ -46,7 +44,12 @@ namespace Lomont.ClAsmTool
             return $"{label} {opcode} {operand}";
         }
 
+        // tokens making this line
         public List<Token> Tokens { get; set; }
+
+        /// <summary>
+        /// true if this line needs more work to assemble
+        /// </summary>
         public bool NeedsFixup { get; set; }
 
     }
