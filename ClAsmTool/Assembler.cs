@@ -32,9 +32,6 @@ namespace Lomont.ClAsmTool
             State = new AsmState();
             State.Output = new Output(textOut);
 
-            State.Cpu = new Cpu6809();
-            State.Cpu.Initialize(State.Output);
-
             State.Output.Info("");
             State.Output.Info("");
             State.Output.Info($"Assembling file {filename}");
@@ -48,6 +45,20 @@ namespace Lomont.ClAsmTool
             ;
 
             State.Lines = Tokenizer.GetLines(File.ReadLines(filename), State.Output);
+
+
+            // determine CPU
+            foreach (var line in State.Lines)
+                if (line?.Opcode?.Text.ToLower() == ".cpu")
+                    State.Cpu = MakeCpu(line?.Operand?.Text,State.Output);
+            if (State.Cpu == null)
+            {
+                State.Output.Info("CPU not detected, assuming 6809. Use '.cpu' directive to set.");
+                State.Cpu = new Cpu6809(false);
+                State.Cpu.Initialize(State.Output);
+            }
+
+
 
             // clean all opcodes
             foreach (var line in State.Lines)
@@ -83,6 +94,19 @@ namespace Lomont.ClAsmTool
                 return false;
 
             return CreateRom();
+        }
+
+        ICpu MakeCpu(string cpuText, Output output)
+        {
+            ICpu cpu = null;
+            if (cpuText == "6809")
+                cpu = new Cpu6809(false);
+            else if (cpuText == "6800")
+                cpu = new Cpu6800();
+            else if (cpuText == "6309")
+                cpu = new Cpu6809(true);
+            cpu?.Initialize(output);
+            return cpu;
         }
 
         void Preprocess()
@@ -518,19 +542,9 @@ namespace Lomont.ClAsmTool
             return 16;
         }
 
-        public enum CpuType
-        {
-            Cpu6809,
-            Cpu6309,
-            Cpu6800
-        }
-
+        
         public class AsmState
         {
-            // 6809 CPU by default
-            // todo - implement
-            public CpuType CpuType = Assembler.CpuType.Cpu6809;
-
             public ICpu Cpu;
 
             // assembly pass 1+

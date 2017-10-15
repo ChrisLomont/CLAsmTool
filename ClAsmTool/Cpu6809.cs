@@ -6,6 +6,10 @@ namespace Lomont.ClAsmTool
 {
     public class Cpu6809 : ICpu
     {
+        public Cpu6809(bool is6309)
+        {
+            // todo
+        }
         /// <summary>
         /// Initialize the CPU definition
         /// </summary>
